@@ -1,0 +1,39 @@
+[project]
+name = "samsplit"
+version = "0.1.0"
+description = "Split impressionist artwork into animatable layers for After Effects (SAM 2 + inpainting + depth)."
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.4",
+    "torchvision>=0.19",
+    "transformers>=4.45",
+    "accelerate>=0.34",
+    "simple-lama-inpainting>=0.1.0",
+    "gradio>=4.44",
+    "pillow>=10.4",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.10",
+    "scipy>=1.14",
+    "huggingface-hub>=0.25",
+]
+
+[project.optional-dependencies]
+# Layered .psd export (PNG layers + AE .jsx is the default and needs none of this).
+psd = ["pytoshop>=1.2"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["samsplit"]
+
+# Pull torch/torchvision from PyTorch's CUDA 12.4 wheel index (WSL2 + RTX 3050).
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
