@@ -7,6 +7,7 @@ these globals are fine; multi-user would need per-session instances.
 
 from __future__ import annotations
 
+import json
 import shutil
 import time
 from pathlib import Path
@@ -160,7 +161,8 @@ def on_preview_depth(orig, reverse):
             "Depth (brighter = treated as nearer). Toggle “Reverse depth” if near/far look swapped.")
 
 
-def on_export(orig, layers, do_inpaint, dilate, auto_order, parallax, strength, reverse):
+def on_export(orig, layers, do_inpaint, dilate, auto_order, parallax, strength, reverse,
+              want_psd, want_composite):
     if orig is None or not layers:
         return None, "Add at least one committed layer before exporting."
     masks = _committed_masks(layers)
@@ -180,17 +182,28 @@ def on_export(orig, layers, do_inpaint, dilate, auto_order, parallax, strength, 
         background = full_background_layer(orig)
         bg_note = "full original"
     background.depth_order = 0
-    background.z = strength_px  # farthest
+    background.z = strength_px
 
     all_layers = [background] + elements
     out_dir = OUTPUTS_DIR / time.strftime("%Y%m%d-%H%M%S")
-    export_project(all_layers, out_dir, parallax=bool(parallax), depth_map=nearness)
+    export_project(all_layers, out_dir, parallax=bool(parallax), depth_map=nearness,
+                   write_psd=bool(want_psd), write_composite=bool(want_composite))
+    manifest = json.loads((out_dir / "manifest.json").read_text())
     zip_path = shutil.make_archive(str(out_dir), "zip", out_dir)
+
+    extras = []
+    if "composite" in manifest:
+        extras.append("composite .png/.jpg")
+    if "psd" in manifest:
+        extras.append("layers.psd")
+    elif "psd_error" in manifest:
+        extras.append("⚠ .psd failed (see manifest)")
+    extra_note = (" • " + ", ".join(extras)) if extras else ""
     rig = "2.5D parallax rig" if parallax else "flat stack"
     return (zip_path,
-            f"Exported {len(all_layers)} layers ({rig}, background = {bg_note}) → "
-            f"**{Path(zip_path).name}**. Unzip, then in AE run *File ▸ Scripts ▸ Run Script File…* "
-            "on `import_to_AE.jsx`" + (" and animate the *SAMSplit Camera* for parallax." if parallax else "."))
+            f"Exported {len(all_layers)} layers ({rig}, background = {bg_note}){extra_note} → "
+            f"**{Path(zip_path).name}**. Open `layers.psd` in Photoshop, or run `import_to_AE.jsx` in AE"
+            + (" then animate the *SAMSplit Camera*." if parallax else "."))
 
 
 # ----------------------------------------------------------------------------- app
@@ -199,7 +212,7 @@ def build_app() -> gr.Blocks:
         gr.Markdown(
             "# SAMSplit\n"
             "Isolate elements of a painting, fill behind them, order them by depth, and export "
-            "full-canvas PNGs + a one-click After Effects (flat or 2.5D parallax) import."
+            "layered PSD / PNG layers + a one-click After Effects (flat or 2.5D parallax) import."
         )
         orig_state = gr.State(None)
         points_state = gr.State([])
@@ -223,23 +236,27 @@ def build_app() -> gr.Blocks:
                 with gr.Row():
                     commit_btn = gr.Button("✓ Commit layer", variant="primary")
                     clear_btn = gr.Button("↺ Clear clicks")
-                gallery = gr.Gallery(label="Committed layers", columns=3, height=180,
+                gallery = gr.Gallery(label="Committed layers", columns=3, height=170,
                                      object_fit="contain")
 
-                with gr.Accordion("Background fill", open=True):
+                with gr.Accordion("Background fill", open=False):
                     inpaint_chk = gr.Checkbox(value=True, label="Fill behind elements (inpaint)")
                     dilate = gr.Slider(0, 24, value=4, step=1, label="Halo dilate px")
                     preview_btn = gr.Button("👁 Preview plate")
 
-                with gr.Accordion("Depth & 2.5D", open=True):
+                with gr.Accordion("Depth & 2.5D", open=False):
                     auto_order = gr.Checkbox(value=True, label="Auto-order layers by depth")
                     parallax_chk = gr.Checkbox(value=True, label="Build 2.5D parallax rig (3D + camera)")
                     strength = gr.Slider(0.0, 1.0, value=0.4, step=0.05, label="Depth strength (Z spread)")
                     reverse = gr.Checkbox(value=False, label="Reverse depth (flip near/far)")
                     preview_depth_btn = gr.Button("👁 Preview depth")
 
-                export_btn = gr.Button("⬇ Export to AE", variant="primary")
-                out_file = gr.File(label="AE package (.zip)")
+                with gr.Accordion("Also export", open=True):
+                    psd_chk = gr.Checkbox(value=True, label="Layered Photoshop .psd")
+                    composite_chk = gr.Checkbox(value=True, label="Flattened composite (.png + .jpg)")
+
+                export_btn = gr.Button("⬇ Export", variant="primary")
+                out_file = gr.File(label="Export package (.zip)")
 
         with gr.Row():
             plate_view = gr.Image(label="Background plate preview", interactive=False, height=320)
@@ -260,7 +277,7 @@ def build_app() -> gr.Blocks:
         preview_depth_btn.click(on_preview_depth, inputs=[orig_state, reverse],
                                 outputs=[depth_view, status])
         export_btn.click(on_export,
-                         inputs=[orig_state, layers_state, inpaint_chk, dilate,
-                                 auto_order, parallax_chk, strength, reverse],
+                         inputs=[orig_state, layers_state, inpaint_chk, dilate, auto_order,
+                                 parallax_chk, strength, reverse, psd_chk, composite_chk],
                          outputs=[out_file, status])
     return demo

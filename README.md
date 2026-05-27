@@ -33,7 +33,7 @@ PNG
 - `samsplit/matte.py`   — binary mask → feathered alpha (keeps painterly edges)
 - `samsplit/inpaint.py` — LaMa fill behind each layer / background plate
 - `samsplit/depth.py`   — Depth Anything V2 → back-to-front order
-- `samsplit/export.py`  — layers + manifest.json + import_to_AE.jsx (+ optional PSD)
+- `samsplit/export.py`  — PNG layers + manifest + import_to_AE.jsx (flat or 2.5D) + layered `.psd` + flattened composite (`.png`/`.jpg`)
 - `samsplit/pipeline.py`— orchestration
 - `app.py`              — Gradio interactive UI
 

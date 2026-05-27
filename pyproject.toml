@@ -15,11 +15,8 @@ dependencies = [
     "opencv-python-headless>=4.10",
     "scipy>=1.14",
     "huggingface-hub>=0.25",
+    "pytoshop>=1.2.1",
 ]
-
-[project.optional-dependencies]
-# Layered .psd export (PNG layers + AE .jsx is the default and needs none of this).
-psd = ["pytoshop>=1.2"]
 
 [build-system]
 requires = ["hatchling"]
