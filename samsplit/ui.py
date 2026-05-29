@@ -167,6 +167,14 @@ def on_export(orig, layers, do_inpaint, dilate, auto_order, parallax, strength, 
         return None, "Add at least one committed layer before exporting."
     masks = _committed_masks(layers)
     elements = list(layers)
+    # Re-derive order/Z from commit order on every export. The Layer objects are
+    # shared with layers_state, and assign_depth_order_and_z() mutates them in
+    # place, so without this reset a prior auto-ordered/parallax export would leak
+    # its depth_order/z into a later flat one (auto-order "off" would silently keep
+    # the old order). Normalizing first makes each export deterministic.
+    for i, layer in enumerate(elements):
+        layer.depth_order = i + 1
+        layer.z = 0.0
     strength_px = _strength_px(orig, strength)
 
     nearness = None

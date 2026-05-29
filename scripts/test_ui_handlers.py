@@ -1,6 +1,7 @@
 """Integration test: drive the UI handlers (upload -> commit -> preview -> export)."""
 
 import io
+import json
 import os
 import zipfile
 
@@ -58,4 +59,12 @@ names2 = zf2.namelist()
 assert any("background_full" in n for n in names2), "inpaint-off should export full background"
 assert "addCamera" not in zf2.read("import_to_AE.jsx").decode(), "flat export must not add a camera"
 assert "layers.psd" in names2 and "composite.png" in names2, "psd/composite missing in flat export"
+
+# Regression (#1): the prior auto-ordered export must not leak depth_order/z into
+# this flat one — elements fall back to commit order (sun, tree) with zero Z.
+manifest2 = json.loads(zf2.read("manifest.json").decode())
+order2 = [layer["name"] for layer in manifest2["layers"]]
+assert order2 == ["background_full", "sun", "tree"], f"flat re-export must use commit order, got {order2}"
+elem_z2 = [layer["z"] for layer in manifest2["layers"] if layer["name"] != "background_full"]
+assert all(z == 0 for z in elem_z2), f"flat re-export should reset element Z, got {elem_z2}"
 print("OK — handlers verified (plate/full, parallax/flat, depth, PSD + composite)")
