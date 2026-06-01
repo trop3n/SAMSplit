@@ -30,12 +30,14 @@ from samsplit.pipeline import (
     plate_background_layer,
 )
 from samsplit.segment import Sam2Segmenter
+from samsplit.style import StyleRefiner
 
 _cfg = Config()
 _segmenter: Sam2Segmenter | None = None
 _matter: ViTMatteMatter | None = None
 _inpainter: LamaInpainter | None = None
 _depther: DepthEstimator | None = None
+_refiner: StyleRefiner | None = None
 
 
 def get_segmenter() -> Sam2Segmenter:
@@ -64,6 +66,18 @@ def get_depther() -> DepthEstimator:
     if _depther is None:
         _depther = DepthEstimator(device=_cfg.device)
     return _depther
+
+
+def get_refiner() -> StyleRefiner:
+    global _refiner
+    if _refiner is None:
+        _refiner = StyleRefiner(
+            _cfg.style_base_id, _cfg.style_lora_path, _cfg.device,
+            max_side=_cfg.style_max_side, prompt=_cfg.style_prompt,
+            negative_prompt=_cfg.style_negative_prompt, guidance=_cfg.style_guidance,
+            seed=_cfg.style_seed,
+        )
+    return _refiner
 
 
 # ----------------------------------------------------------------------------- helpers
@@ -141,12 +155,15 @@ def on_commit(orig, mask, name, edge_mode, feather, band, layers):
             f"Committed “{layer.name}” ({mode} edge) — {len(layers)} layer(s). Click the next element.")
 
 
-def on_preview_plate(orig, layers, dilate):
+def on_preview_plate(orig, layers, dilate, use_style=False, style_strength=0.3):
     masks = _committed_masks(layers)
     if orig is None or not masks:
         return None, "Commit at least one element first, then preview the fill."
-    plate = build_clean_plate(orig, masks, get_inpainter(), dilate_px=int(dilate))
-    return (plate, f"Background plate: {len(masks)} element(s) removed and inpainted. "
+    refiner = get_refiner() if use_style else None
+    plate = build_clean_plate(orig, masks, get_inpainter(), dilate_px=int(dilate),
+                              refiner=refiner, style_strength=float(style_strength))
+    styled = " + style-matched" if use_style else ""
+    return (plate, f"Background plate: {len(masks)} element(s) removed and inpainted{styled}. "
                    "If the fill looks wrong, raise the halo slider or commit tighter masks.")
 
 
@@ -162,7 +179,7 @@ def on_preview_depth(orig, reverse):
 
 
 def on_export(orig, layers, do_inpaint, dilate, auto_order, parallax, strength, reverse,
-              want_psd, want_composite):
+              want_psd, want_composite, use_style=False, style_strength=0.3):
     if orig is None or not layers:
         return None, "Add at least one committed layer before exporting."
     masks = _committed_masks(layers)
@@ -183,9 +200,11 @@ def on_export(orig, layers, do_inpaint, dilate, auto_order, parallax, strength, 
         assign_depth_order_and_z(elements, nearness, strength_px, reverse=bool(reverse))
 
     if do_inpaint and masks:
+        refiner = get_refiner() if use_style else None
         background = plate_background_layer(
-            build_clean_plate(orig, masks, get_inpainter(), dilate_px=int(dilate)))
-        bg_note = "inpainted plate"
+            build_clean_plate(orig, masks, get_inpainter(), dilate_px=int(dilate),
+                              refiner=refiner, style_strength=float(style_strength)))
+        bg_note = "style-matched plate" if use_style else "inpainted plate"
     else:
         background = full_background_layer(orig)
         bg_note = "full original"
@@ -250,6 +269,15 @@ def build_app() -> gr.Blocks:
                 with gr.Accordion("Background fill", open=False):
                     inpaint_chk = gr.Checkbox(value=True, label="Fill behind elements (inpaint)")
                     dilate = gr.Slider(0, 24, value=4, step=1, label="Halo dilate px")
+                    _lora_ready = _cfg.style_lora_path is not None
+                    style_chk = gr.Checkbox(
+                        value=False, interactive=_lora_ready,
+                        label="Style-match fill (artist LoRA)",
+                        info=("Re-paint the fill in the artist's style."
+                              if _lora_ready else
+                              "Train a LoRA into models/style_lora/ to enable (Phase 4)."))
+                    style_strength = gr.Slider(0.0, 0.8, value=_cfg.style_strength, step=0.05,
+                                               label="Style strength", visible=_lora_ready)
                     preview_btn = gr.Button("👁 Preview plate")
 
                 with gr.Accordion("Depth & 2.5D", open=False):
@@ -280,12 +308,14 @@ def build_app() -> gr.Blocks:
                          inputs=[orig_state, mask_state, name_box, edge_mode, feather, band, layers_state],
                          outputs=[layers_state, gallery, img, points_state, labels_state,
                                   mask_state, name_box, status])
-        preview_btn.click(on_preview_plate, inputs=[orig_state, layers_state, dilate],
+        preview_btn.click(on_preview_plate,
+                          inputs=[orig_state, layers_state, dilate, style_chk, style_strength],
                           outputs=[plate_view, status])
         preview_depth_btn.click(on_preview_depth, inputs=[orig_state, reverse],
                                 outputs=[depth_view, status])
         export_btn.click(on_export,
                          inputs=[orig_state, layers_state, inpaint_chk, dilate, auto_order,
-                                 parallax_chk, strength, reverse, psd_chk, composite_chk],
+                                 parallax_chk, strength, reverse, psd_chk, composite_chk,
+                                 style_chk, style_strength],
                          outputs=[out_file, status])
     return demo

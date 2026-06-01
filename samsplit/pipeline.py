@@ -53,9 +53,21 @@ def full_background_layer(image_rgb, name="background_full", depth_order=0) -> L
     return Layer(name=name, rgba=rgba, depth_order=depth_order)
 
 
-def build_clean_plate(image_rgb, masks, inpainter, dilate_px: int = 4) -> np.ndarray:
-    """Remove every element (union of masks) and inpaint -> clean background RGB."""
-    return inpainter.inpaint(image_rgb, union_mask(list(masks)), dilate_px=dilate_px)
+def build_clean_plate(image_rgb, masks, inpainter, dilate_px: int = 4,
+                      refiner=None, *, style_strength: float = 0.3, style_steps: int = 15) -> np.ndarray:
+    """Remove every element (union of masks) and inpaint -> clean background RGB.
+
+    With ``refiner`` set (Phase 4 style-matched fill), the inpainted hole is then
+    re-textured with the artist style LoRA so the invented paint reads as the
+    artist's own hand. The refine is confined to the hole, so the rest of the plate
+    stays identical to LaMa's output. ``refiner=None`` is exactly the Phase 2 behavior.
+    """
+    hole = union_mask(list(masks))
+    plate = inpainter.inpaint(image_rgb, hole, dilate_px=dilate_px)
+    if refiner is not None:
+        plate = refiner.refine(plate, hole, dilate_px=dilate_px,
+                               strength=style_strength, steps=style_steps)
+    return plate
 
 
 def plate_background_layer(plate_rgb, name="background_plate", depth_order=0) -> Layer:

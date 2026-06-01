@@ -7,6 +7,9 @@ __pycache__/
 # SAMSplit artifacts
 models/
 outputs/
+data/
+ArtTraining/
+scripts/vendor/
 *.psd
 
 # Gradio
